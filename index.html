@@ -6,27 +6,34 @@
 <title>テイラー展開ビジュアライザー</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: sans-serif; background: #f5f5f5; color: #222; padding: 16px; }
+  body { font-family: sans-serif; background: #f0f0f0; color: #222; padding: 16px; }
   h1 { font-size: 18px; font-weight: 500; margin-bottom: 12px; }
-  .container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .multi-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
   .panel { background: #fff; border: 1px solid #ddd; border-radius: 12px; overflow: hidden; }
   .panel-header { padding: 8px 12px; border-bottom: 1px solid #eee; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .panel-title { font-size: 13px; font-weight: 500; }
-  .panel-sub { font-size: 12px; color: #888; }
-  canvas { display: block; cursor: crosshair; width: 100%; }
+  .panel-sub { font-size: 11px; color: #888; }
+  canvas { display: block; width: 100%; }
   .controls { padding: 8px 12px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .ctrl-label { font-size: 12px; color: #888; white-space: nowrap; }
-  .ctrl-val { font-size: 12px; font-weight: 500; min-width: 20px; text-align: right; }
+  .ctrl-val { font-size: 12px; font-weight: 500; min-width: 24px; text-align: right; }
   input[type=range] { flex: 1; min-width: 80px; }
   .btn { font-size: 12px; padding: 4px 10px; cursor: pointer; border: 1px solid #ccc; border-radius: 8px; background: transparent; color: #222; }
   .btn:hover { background: #f0f0f0; }
   .btn:active { transform: scale(0.97); }
-  .legend { display: flex; gap: 12px; align-items: center; font-size: 11px; color: #888; }
-  .leg-dot { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .legend { display: flex; gap: 10px; align-items: center; font-size: 11px; color: #888; }
+  .leg-line { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
   .info { font-size: 11px; color: #888; padding: 4px 12px 8px; line-height: 1.5; }
-
-  @media (max-width: 600px) {
-    .container { grid-template-columns: 1fr; }
+  .mini-label { font-size: 11px; font-weight: 500; text-align: center; padding: 5px 0 3px; color: #555; border-bottom: 1px solid #eee; }
+  .mini-rmse { font-size: 10px; color: #999; text-align: center; padding: 3px 0 5px; }
+  .section-title { font-size: 13px; font-weight: 500; color: #555; margin-bottom: 8px; }
+  @media (max-width: 700px) {
+    .top-grid { grid-template-columns: 1fr; }
+    .multi-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  @media (max-width: 450px) {
+    .multi-grid { grid-template-columns: repeat(2, 1fr); }
   }
 </style>
 </head>
@@ -34,297 +41,406 @@
 
 <h1>テイラー展開ビジュアライザー</h1>
 
-<div class="container">
+<div class="top-grid">
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">入力グラフ</span>
-      <span class="panel-sub">マウスでドラッグして曲線を描く</span>
+      <span class="panel-sub">マウスでドラッグして描く</span>
     </div>
     <canvas id="inputCanvas"></canvas>
     <div class="controls">
       <button class="btn" id="clearBtn">クリア</button>
       <button class="btn" id="fitBtn">フィッティング実行</button>
+      <select id="methodSel" style="font-size:12px;padding:3px 6px;border:1px solid #ccc;border-radius:6px;background:#fff;">
+        <option value="poly">多項式回帰</option>
+        <option value="cheby">チェビシェフ</option>
+      </select>
     </div>
-    <div class="info">展開点 x₀ = 0（グラフ中央）を基準にフィッティングします</div>
+    <div class="info">展開点 x₀ = 0（中央）基準。チェビシェフは高次でも安定。</div>
   </div>
 
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">描画グラフ</span>
       <div class="legend">
-        <span><span class="leg-dot" style="background:#378ADD"></span> 入力</span>
-        <span><span class="leg-dot" style="background:#D85A30"></span> Taylor</span>
+        <span><span class="leg-line" style="background:#378ADD"></span>入力</span>
+        <span><span class="leg-line" style="background:#D85A30"></span>Taylor</span>
       </div>
     </div>
     <canvas id="outputCanvas"></canvas>
     <div class="controls">
       <span class="ctrl-label">次数</span>
-      <input type="range" id="degreeSlider" min="1" max="50" value="5" step="1">
+      <input type="range" id="degreeSlider" min="1" max="200" value="5" step="1">
       <span class="ctrl-val" id="degreeVal">5</span>
     </div>
-    <div class="controls" style="border-top: none; padding-top: 0;">
-      <span class="ctrl-label" style="font-size:11px">誤差 (RMSE):</span>
-      <span id="rmseVal" style="font-size:11px; font-weight:500">—</span>
+    <div class="controls" style="border-top:none;padding-top:0;gap:16px;">
+      <span style="font-size:11px;color:#888;">RMSE: <span id="rmseVal" style="font-weight:500;color:#222;">—</span></span>
+      <span style="font-size:11px;color:#888;">係数数: <span id="coeffCount" style="font-weight:500;color:#222;">—</span></span>
     </div>
   </div>
 </div>
 
+<div class="section-title">次数別フィッティング比較（次数: 1, 5, 10, 20, 50, 100, 200）</div>
+<div class="multi-grid" id="multiGrid"></div>
+
 <script>
-  const iC = document.getElementById('inputCanvas');
-  const oC = document.getElementById('outputCanvas');
-  const iX = iC.getContext('2d');
-  const oX = oC.getContext('2d');
-  const slider = document.getElementById('degreeSlider');
-  const degVal = document.getElementById('degreeVal');
-  const rmseEl = document.getElementById('rmseVal');
+const DEGREES = [1, 5, 10, 20, 50, 100, 200];
+const MW = 160, MH = 120;
+const W = 500, H = 320, PAD = 24;
+const XW = W - PAD*2, XH = H - PAD*2;
 
-  const W = 500, H = 320;
-  const PAD = 24;
-  const XW = W - PAD * 2;
-  const XH = H - PAD * 2;
+const iC = document.getElementById('inputCanvas');
+const oC = document.getElementById('outputCanvas');
+const iX = iC.getContext('2d');
+const oX = oC.getContext('2d');
+const slider = document.getElementById('degreeSlider');
+const degVal = document.getElementById('degreeVal');
+const rmseEl = document.getElementById('rmseVal');
+const coeffCountEl = document.getElementById('coeffCount');
+const methodSel = document.getElementById('methodSel');
 
-  iC.width = W; iC.height = H;
-  oC.width = W; oC.height = H;
+iC.width = W; iC.height = H;
+oC.width = W; oC.height = H;
 
-  let drawing = false;
-  let rawPoints = [];
-  let coeffs = [];
+let drawing = false, rawPoints = [], coeffs = [];
 
-  function drawAxes(ctx) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-    ctx.lineWidth = 0.5;
+const multiCanvases = [];
+const multiGrid = document.getElementById('multiGrid');
+DEGREES.forEach(deg => {
+  const div = document.createElement('div');
+  div.className = 'panel';
+  div.innerHTML = `<div class="mini-label">次数 ${deg}</div>`;
+  const cvs = document.createElement('canvas');
+  cvs.width = MW; cvs.height = MH;
+  cvs.style.width = '100%';
+  div.appendChild(cvs);
+  const rmseDiv = document.createElement('div');
+  rmseDiv.className = 'mini-rmse';
+  rmseDiv.id = 'mini-rmse-' + deg;
+  rmseDiv.textContent = 'RMSE: —';
+  div.appendChild(rmseDiv);
+  multiGrid.appendChild(div);
+  multiCanvases.push({ deg, cvs, ctx: cvs.getContext('2d'), rmseDiv });
+});
+
+function drawAxes(ctx, w, h, pad) {
+  ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(pad, pad); ctx.lineTo(pad, h-pad);
+  ctx.moveTo(pad, h-pad); ctx.lineTo(w-pad, h-pad);
+  ctx.moveTo(pad, h/2); ctx.lineTo(w-pad, h/2);
+  ctx.moveTo(w/2, pad); ctx.lineTo(w/2, h-pad);
+  ctx.stroke();
+  ctx.fillStyle = '#bbb';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('0', w/2+3, h/2+10);
+}
+
+function dataToC(x, y, w, h, pad) {
+  return { cx: ((x+2)/4)*(w-pad*2)+pad, cy: (-(y-2)/4)*(h-pad*2)+pad };
+}
+function cToData(cx, cy, w, h, pad) {
+  return { x: ((cx-pad)/(w-pad*2))*4-2, y: -((cy-pad)/(h-pad*2))*4+2 };
+}
+
+function redrawInput() {
+  iX.clearRect(0,0,W,H);
+  drawAxes(iX, W, H, PAD);
+  if(rawPoints.length < 2) return;
+  iX.beginPath();
+  iX.strokeStyle = '#378ADD';
+  iX.lineWidth = 2.5;
+  iX.lineJoin = 'round'; iX.lineCap = 'round';
+  rawPoints.forEach((p,i) => i===0 ? iX.moveTo(p.cx,p.cy) : iX.lineTo(p.cx,p.cy));
+  iX.stroke();
+}
+
+function getSampledData(nSamples) {
+  const N = nSamples || 400;
+  const yArr = new Array(N).fill(null);
+  rawPoints.forEach(p => {
+    const d = cToData(p.cx, p.cy, W, H, PAD);
+    const idx = Math.round(((d.x+2)/4)*(N-1));
+    if(idx >= 0 && idx < N) yArr[idx] = d.y;
+  });
+  // Linear interpolation
+  let lastValid = null;
+  for(let i=0; i<N; i++) {
+    if(yArr[i] !== null) { lastValid = i; }
+  }
+  if(lastValid === null) return yArr;
+  for(let i=0; i<N; i++) {
+    if(yArr[i] === null) {
+      let prev = -1, next = -1;
+      for(let j=i-1; j>=0; j--) { if(yArr[j]!==null){prev=j;break;} }
+      for(let j=i+1; j<N; j++) { if(yArr[j]!==null){next=j;break;} }
+      if(prev>=0 && next>=0) yArr[i] = yArr[prev] + (yArr[next]-yArr[prev])*(i-prev)/(next-prev);
+    }
+  }
+  return yArr;
+}
+
+// Chebyshev polynomial evaluation T_n(x)
+function chebyT(n, x) {
+  if(n===0) return 1;
+  if(n===1) return x;
+  let t0=1, t1=x;
+  for(let k=2; k<=n; k++) { const t2=2*x*t1-t0; t0=t1; t1=t2; }
+  return t1;
+}
+
+// Solve least squares via normal equations with Tikhonov regularization
+function solveLeastSquares(A, b, lambda) {
+  const m = A.length, n = A[0].length;
+  const lam = lambda || 0;
+  // AtA
+  const AtA = [];
+  for(let i=0; i<n; i++) {
+    AtA.push([]);
+    for(let j=0; j<n; j++) {
+      let s = 0;
+      for(let k=0; k<m; k++) s += A[k][i]*A[k][j];
+      AtA[i].push(s + (i===j ? lam : 0));
+    }
+  }
+  // Atb
+  const Atb = [];
+  for(let i=0; i<n; i++) {
+    let s = 0;
+    for(let k=0; k<m; k++) s += A[k][i]*b[k];
+    Atb.push(s);
+  }
+  // Gaussian elimination with partial pivoting
+  const aug = AtA.map((r,i) => [...r, Atb[i]]);
+  for(let col=0; col<n; col++) {
+    let maxR = col;
+    for(let r=col+1; r<n; r++) if(Math.abs(aug[r][col])>Math.abs(aug[maxR][col])) maxR=r;
+    [aug[col],aug[maxR]] = [aug[maxR],aug[col]];
+    const piv = aug[col][col];
+    if(Math.abs(piv)<1e-14) continue;
+    for(let r=0; r<n; r++) {
+      if(r===col) continue;
+      const f = aug[r][col]/piv;
+      for(let c=col; c<=n; c++) aug[r][c] -= f*aug[col][c];
+    }
+    for(let c=col; c<=n; c++) aug[col][c] /= piv;
+  }
+  return aug.map(r => r[n]);
+}
+
+function buildPolyBasis(xs, deg) {
+  return xs.map(x => {
+    const row = [];
+    for(let j=0; j<=deg; j++) row.push(Math.pow(x,j));
+    return row;
+  });
+}
+
+function buildChebyBasis(xs, deg) {
+  // Map x from [-2,2] to [-1,1]
+  return xs.map(x => {
+    const t = x/2;
+    const row = [];
+    for(let j=0; j<=deg; j++) row.push(chebyT(j,t));
+    return row;
+  });
+}
+
+function computeFit(yArr, degree, method) {
+  const N = yArr.length;
+  const valid = [];
+  for(let i=0; i<N; i++) {
+    if(yArr[i]!==null) {
+      valid.push({ x: (i/(N-1))*4-2, y: yArr[i] });
+    }
+  }
+  if(valid.length < 2) return { coeffs: [], evalFn: ()=>0 };
+  const deg = Math.min(degree, valid.length-1, 200);
+  const xs = valid.map(p=>p.x);
+  const b  = valid.map(p=>p.y);
+
+  // Adaptive regularization: stronger for higher degrees
+  const lambda = 1e-10 * Math.pow(10, deg/40);
+
+  let A, evalFn;
+  if(method === 'cheby') {
+    A = buildChebyBasis(xs, deg);
+    const c = solveLeastSquares(A, b, lambda);
+    evalFn = x => {
+      const t = x/2;
+      return c.reduce((s,a,i)=>s+a*chebyT(i,t),0);
+    };
+    return { coeffs: c, evalFn };
+  } else {
+    A = buildPolyBasis(xs, deg);
+    const c = solveLeastSquares(A, b, lambda);
+    evalFn = x => c.reduce((s,a,i)=>s+a*Math.pow(x,i),0);
+    return { coeffs: c, evalFn };
+  }
+}
+
+function calcRMSE(evalFn, yArr) {
+  const N = yArr.length;
+  let sum=0, cnt=0;
+  for(let i=0; i<N; i++) {
+    if(yArr[i]!==null) {
+      const x = (i/(N-1))*4-2;
+      sum += (evalFn(x)-yArr[i])**2; cnt++;
+    }
+  }
+  return cnt>0 ? Math.sqrt(sum/cnt) : 0;
+}
+
+function drawFitOnCanvas(ctx, w, h, pad, yArr, evalFn, showInput) {
+  ctx.clearRect(0,0,w,h);
+  drawAxes(ctx, w, h, pad);
+  const N = yArr.length;
+
+  if(showInput) {
     ctx.beginPath();
-    ctx.moveTo(PAD, PAD);         ctx.lineTo(PAD, H - PAD);
-    ctx.moveTo(PAD, H - PAD);     ctx.lineTo(W - PAD, H - PAD);
-    ctx.moveTo(PAD, H / 2);       ctx.lineTo(W - PAD, H / 2);
-    ctx.moveTo(W / 2, PAD);       ctx.lineTo(W / 2, H - PAD);
+    ctx.strokeStyle = '#378ADD';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4,3]);
+    let fst=true;
+    for(let i=0; i<N; i++) {
+      if(yArr[i]===null){fst=true;continue;}
+      const x=(i/(N-1))*4-2;
+      const {cx,cy}=dataToC(x,yArr[i],w,h,pad);
+      if(cy<pad-2||cy>h-pad+2){fst=true;continue;}
+      if(fst){ctx.moveTo(cx,cy);fst=false;}else ctx.lineTo(cx,cy);
+    }
     ctx.stroke();
-
-    ctx.fillStyle = '#aaa';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('0', W / 2 + 3, H / 2 + 12);
-    ctx.fillText('x', W - PAD + 6, H / 2 + 4);
-    ctx.textAlign = 'left';
-    ctx.fillText('y', W / 2 - 12, PAD - 4);
-
-    ctx.fillStyle = '#ddd';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    for (let v = -1; v <= 1; v++) {
-      if (v === 0) continue;
-      const {cx} = dataToCanvas(v, 0);
-      const {cy} = dataToCanvas(0, v);
-      ctx.fillStyle = '#bbb';
-      ctx.fillText(v.toString(), cx, H / 2 + 12);
-      ctx.textAlign = 'right';
-      ctx.fillText(v.toString(), W / 2 - 4, cy + 4);
-      ctx.textAlign = 'center';
-    }
+    ctx.setLineDash([]);
   }
 
-  function dataToCanvas(x, y) {
-    const cx = ((x + 2) / 4) * XW + PAD;
-    const cy = (-(y - 2) / 4) * XH + PAD;
-    return { cx, cy };
+  ctx.beginPath();
+  ctx.strokeStyle = '#D85A30';
+  ctx.lineWidth = showInput ? 2 : 1.5;
+  let fst=true;
+  const steps = 500;
+  for(let i=0; i<=steps; i++) {
+    const x=-2+(4*i/steps);
+    let y;
+    try { y=evalFn(x); } catch(e){fst=true;continue;}
+    if(!isFinite(y)||Math.abs(y)>20){fst=true;continue;}
+    const {cx,cy}=dataToC(x,y,w,h,pad);
+    if(cy<pad-60||cy>h-pad+60){fst=true;continue;}
+    if(fst){ctx.moveTo(cx,cy);fst=false;}else ctx.lineTo(cx,cy);
   }
+  ctx.stroke();
+}
 
-  function canvasToData(cx, cy) {
-    const x = ((cx - PAD) / XW) * 4 - 2;
-    const y = -((cy - PAD) / XH) * 4 + 2;
-    return { x, y };
+function redrawOutput() {
+  oX.clearRect(0,0,W,H);
+  drawAxes(oX, W, H, PAD);
+  const yArr = getSampledData(400);
+  const N = yArr.length;
+  const hasData = yArr.some(v=>v!==null);
+  if(!hasData){ rmseEl.textContent='—'; coeffCountEl.textContent='—'; return; }
+
+  // Draw input
+  oX.beginPath();
+  oX.strokeStyle = '#378ADD';
+  oX.lineWidth = 1.5;
+  oX.setLineDash([5,4]);
+  let fst=true;
+  for(let i=0; i<N; i++) {
+    if(yArr[i]===null){fst=true;continue;}
+    const x=(i/(N-1))*4-2;
+    const {cx,cy}=dataToC(x,yArr[i],W,H,PAD);
+    if(cy<PAD-2||cy>H-PAD+2){fst=true;continue;}
+    if(fst){oX.moveTo(cx,cy);fst=false;}else oX.lineTo(cx,cy);
   }
+  oX.stroke();
+  oX.setLineDash([]);
 
-  function redrawInput() {
-    iX.clearRect(0, 0, W, H);
-    drawAxes(iX);
-    if (rawPoints.length < 2) return;
-    iX.beginPath();
-    iX.strokeStyle = '#378ADD';
-    iX.lineWidth = 2.5;
-    iX.lineJoin = 'round';
-    iX.lineCap = 'round';
-    rawPoints.forEach((p, i) => {
-      if (i === 0) iX.moveTo(p.cx, p.cy);
-      else iX.lineTo(p.cx, p.cy);
-    });
-    iX.stroke();
+  const deg = parseInt(slider.value);
+  const method = methodSel.value;
+  const {coeffs: c, evalFn} = computeFit(yArr, deg, method);
+  coeffs = c;
+
+  oX.beginPath();
+  oX.strokeStyle = '#D85A30';
+  oX.lineWidth = 2;
+  fst=true;
+  const steps=500;
+  for(let i=0; i<=steps; i++) {
+    const x=-2+(4*i/steps);
+    let y;
+    try{ y=evalFn(x); }catch(e){fst=true;continue;}
+    if(!isFinite(y)||Math.abs(y)>20){fst=true;continue;}
+    const {cx,cy}=dataToC(x,y,W,H,PAD);
+    if(cy<PAD-60||cy>H-PAD+60){fst=true;continue;}
+    if(fst){oX.moveTo(cx,cy);fst=false;}else oX.lineTo(cx,cy);
   }
+  oX.stroke();
 
-  function getSampledData() {
-    const N = 200;
-    const yArr = new Array(N).fill(null);
-    rawPoints.forEach(p => {
-      const d = canvasToData(p.cx, p.cy);
-      const idx = Math.round(((d.x + 2) / 4) * (N - 1));
-      if (idx >= 0 && idx < N) yArr[idx] = d.y;
-    });
-    for (let i = 1; i < N; i++) {
-      if (yArr[i] === null && yArr[i - 1] !== null) {
-        for (let j = i + 1; j < N; j++) {
-          if (yArr[j] !== null) {
-            for (let k = i; k < j; k++) {
-              yArr[k] = yArr[i - 1] + (yArr[j] - yArr[i - 1]) * (k - i + 1) / (j - i + 1);
-            }
-            break;
-          }
-        }
-      }
-    }
-    return yArr;
-  }
+  const rmse = calcRMSE(evalFn, yArr);
+  rmseEl.textContent = rmse.toFixed(5);
+  coeffCountEl.textContent = c.length;
 
-  function computeTaylor(yArr, degree) {
-    const N = yArr.length;
-    const valid = [];
-    for (let i = 0; i < N; i++) {
-      if (yArr[i] !== null) {
-        const x = (i / (N - 1)) * 4 - 2;
-        valid.push({ x, y: yArr[i] });
-      }
-    }
-    if (valid.length < 2) return [];
-    const deg = Math.min(degree, valid.length - 1);
-    const m = valid.length;
-    const A = valid.map(p => {
-      const row = [];
-      for (let j = 0; j <= deg; j++) row.push(Math.pow(p.x, j));
-      return row;
-    });
-    const b = valid.map(p => p.y);
-    const At = A[0].map((_, j) => A.map(r => r[j]));
-    const AtA = At.map(r => At.map(c => r.reduce((s, v, k) => s + v * c[k], 0)));
-    const Atb = At.map(r => r.reduce((s, v, k) => s + v * b[k], 0));
-    const n = deg + 1;
-    const aug = AtA.map((r, i) => [...r, Atb[i]]);
-    for (let col = 0; col < n; col++) {
-      let maxR = col;
-      for (let r = col + 1; r < n; r++) {
-        if (Math.abs(aug[r][col]) > Math.abs(aug[maxR][col])) maxR = r;
-      }
-      [aug[col], aug[maxR]] = [aug[maxR], aug[col]];
-      const piv = aug[col][col];
-      if (Math.abs(piv) < 1e-12) continue;
-      for (let r = 0; r < n; r++) {
-        if (r === col) continue;
-        const f = aug[r][col] / piv;
-        for (let c = col; c <= n; c++) aug[r][c] -= f * aug[col][c];
-      }
-      for (let c = col; c <= n; c++) aug[col][c] /= piv;
-    }
-    return aug.map(r => r[n]);
-  }
+  // Update mini graphs
+  updateMiniGraphs(yArr);
+}
 
-  function evalPoly(c, x) {
-    return c.reduce((s, a, i) => s + a * Math.pow(x, i), 0);
-  }
-
-  function redrawOutput() {
-    oX.clearRect(0, 0, W, H);
-    drawAxes(oX);
-    const yArr = getSampledData();
-    const validX = [], validY = [];
-    for (let i = 0; i < yArr.length; i++) {
-      if (yArr[i] !== null) {
-        validX.push((i / (yArr.length - 1)) * 4 - 2);
-        validY.push(yArr[i]);
-      }
-    }
-    if (validX.length < 2) { rmseEl.textContent = '—'; return; }
-
-    oX.beginPath();
-    oX.strokeStyle = '#378ADD';
-    oX.lineWidth = 1.5;
-    oX.setLineDash([5, 4]);
-    let first = true;
-    for (let i = 0; i < validX.length; i++) {
-      const { cx, cy } = dataToCanvas(validX[i], validY[i]);
-      if (cy < PAD - 2 || cy > H - PAD + 2) { first = true; continue; }
-      if (first) { oX.moveTo(cx, cy); first = false; } else oX.lineTo(cx, cy);
-    }
-    oX.stroke();
-    oX.setLineDash([]);
-
-    const deg = parseInt(slider.value);
-    coeffs = computeTaylor(yArr, deg);
-    if (coeffs.length === 0) { rmseEl.textContent = '—'; return; }
-
-    oX.beginPath();
-    oX.strokeStyle = '#D85A30';
-    oX.lineWidth = 2;
-    let fst = true;
-    const steps = 400;
-    for (let i = 0; i <= steps; i++) {
-      const x = -2 + (4 * i / steps);
-      const y = evalPoly(coeffs, x);
-      const { cx, cy } = dataToCanvas(x, y);
-      if (cy < PAD - 60 || cy > H - PAD + 60) { fst = true; continue; }
-      if (fst) { oX.moveTo(cx, cy); fst = false; } else oX.lineTo(cx, cy);
-    }
-    oX.stroke();
-
-    let rmse = 0, cnt = 0;
-    for (let i = 0; i < validX.length; i++) {
-      const pred = evalPoly(coeffs, validX[i]);
-      rmse += (pred - validY[i]) ** 2;
-      cnt++;
-    }
-    rmse = cnt > 0 ? Math.sqrt(rmse / cnt) : 0;
-    rmseEl.textContent = rmse.toFixed(4);
-  }
-
-  function initCanvas(ctx) {
-    ctx.clearRect(0, 0, W, H);
-    drawAxes(ctx);
-  }
-
-  initCanvas(iX);
-  initCanvas(oX);
-
-  function getPos(e, canvas) {
-    const r = canvas.getBoundingClientRect();
-    const scaleX = W / r.width;
-    const scaleY = H / r.height;
-    if (e.touches) {
-      return { cx: (e.touches[0].clientX - r.left) * scaleX, cy: (e.touches[0].clientY - r.top) * scaleY };
-    }
-    return { cx: (e.clientX - r.left) * scaleX, cy: (e.clientY - r.top) * scaleY };
-  }
-
-  iC.addEventListener('mousedown', e => {
-    drawing = true; rawPoints = [];
-    rawPoints.push(getPos(e, iC));
+function updateMiniGraphs(yArr) {
+  const method = methodSel.value;
+  const mpad = 10;
+  multiCanvases.forEach(({deg, cvs, ctx, rmseDiv}) => {
+    const {evalFn} = computeFit(yArr, deg, method);
+    drawFitOnCanvas(ctx, MW, MH, mpad, yArr, evalFn, true);
+    const rmse = calcRMSE(evalFn, yArr);
+    rmseDiv.textContent = 'RMSE: ' + rmse.toFixed(4);
   });
-  iC.addEventListener('mousemove', e => {
-    if (!drawing) return;
-    rawPoints.push(getPos(e, iC));
-    redrawInput();
-  });
-  iC.addEventListener('mouseup', () => drawing = false);
-  iC.addEventListener('mouseleave', () => drawing = false);
+}
 
-  iC.addEventListener('touchstart', e => {
-    e.preventDefault(); drawing = true; rawPoints = [];
-    rawPoints.push(getPos(e, iC));
-  }, { passive: false });
-  iC.addEventListener('touchmove', e => {
-    e.preventDefault(); if (!drawing) return;
-    rawPoints.push(getPos(e, iC));
-    redrawInput();
-  }, { passive: false });
-  iC.addEventListener('touchend', () => drawing = false);
+function initCanvas(ctx, w, h) {
+  ctx.clearRect(0,0,w,h);
+  drawAxes(ctx, w, h, PAD);
+}
+function initMini(ctx) {
+  ctx.clearRect(0,0,MW,MH);
+  drawAxes(ctx, MW, MH, 10);
+}
 
-  document.getElementById('clearBtn').addEventListener('click', () => {
-    rawPoints = []; coeffs = [];
-    initCanvas(iX); initCanvas(oX);
-    rmseEl.textContent = '—';
-  });
-  document.getElementById('fitBtn').addEventListener('click', redrawOutput);
+initCanvas(iX, W, H);
+initCanvas(oX, W, H);
+multiCanvases.forEach(({ctx}) => initMini(ctx));
 
-  slider.addEventListener('input', () => {
-    degVal.textContent = slider.value;
-    if (rawPoints.length > 2) redrawOutput();
-  });
+function getPos(e, canvas) {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = W / r.width, scaleY = H / r.height;
+  if(e.touches) return { cx:(e.touches[0].clientX-r.left)*scaleX, cy:(e.touches[0].clientY-r.top)*scaleY };
+  return { cx:(e.clientX-r.left)*scaleX, cy:(e.clientY-r.top)*scaleY };
+}
+
+iC.addEventListener('mousedown', e => { drawing=true; rawPoints=[]; rawPoints.push(getPos(e,iC)); });
+iC.addEventListener('mousemove', e => { if(!drawing)return; rawPoints.push(getPos(e,iC)); redrawInput(); });
+iC.addEventListener('mouseup', ()=>drawing=false);
+iC.addEventListener('mouseleave', ()=>drawing=false);
+iC.addEventListener('touchstart', e=>{e.preventDefault();drawing=true;rawPoints=[];rawPoints.push(getPos(e,iC));},{passive:false});
+iC.addEventListener('touchmove', e=>{e.preventDefault();if(!drawing)return;rawPoints.push(getPos(e,iC));redrawInput();},{passive:false});
+iC.addEventListener('touchend', ()=>drawing=false);
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  rawPoints=[];coeffs=[];
+  initCanvas(iX,W,H); initCanvas(oX,W,H);
+  rmseEl.textContent='—'; coeffCountEl.textContent='—';
+  multiCanvases.forEach(({ctx,rmseDiv})=>{ initMini(ctx); rmseDiv.textContent='RMSE: —'; });
+});
+
+document.getElementById('fitBtn').addEventListener('click', redrawOutput);
+
+slider.addEventListener('input', ()=>{
+  degVal.textContent=slider.value;
+  if(rawPoints.length>2) redrawOutput();
+});
+
+methodSel.addEventListener('change', ()=>{
+  if(rawPoints.length>2) redrawOutput();
+});
 </script>
 </body>
 </html>
